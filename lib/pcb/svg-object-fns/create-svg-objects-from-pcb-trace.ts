@@ -10,7 +10,10 @@ import {
 import type { INode as SvgObject } from "svgson"
 import { applyToPoint } from "transformation-matrix"
 import { clipPcbTraceSegmentAtCopperPourBoundary } from "../clip-pcb-trace-segment-at-copper-pour-boundary"
-import type { PcbContext } from "../convert-circuit-json-to-pcb-svg"
+import type {
+  PcbContext,
+  PcbViaPositionKey,
+} from "../convert-circuit-json-to-pcb-svg"
 import {
   getPcbTraceSegments,
   type PcbTraceSegment,
@@ -233,7 +236,7 @@ export function createSvgObjectsFromPcbTrace(
 
   for (const [index, point] of trace.route.entries()) {
     if (!point || point.route_type !== "via") continue
-    if (getStandaloneViaPositionKeys(ctx).has(getPositionKey(point))) continue
+    if (hasMatchingStandaloneVia({ trace, point }, ctx)) continue
 
     svgObjects.push(
       ...createSvgObjectsFromPcbVia(
@@ -326,8 +329,9 @@ function createSyntheticViaFromRoutePoint(
     pcb_group_id: trace.pcb_group_id,
     x: point.x,
     y: point.y,
-    outer_diameter: outerDiameter,
-    hole_diameter: holeDiameter,
+    outer_diameter:
+      parseOptionalDistance(point.outer_diameter) ?? outerDiameter,
+    hole_diameter: parseOptionalDistance(point.hole_diameter) ?? holeDiameter,
     layers: [point.from_layer, point.to_layer],
     tented_on_top: point.tented_on_top,
     tented_on_bottom: point.tented_on_bottom,
@@ -393,12 +397,56 @@ function getRouteViaDiameters(
   }
 }
 
-function getStandaloneViaPositionKeys(ctx: PcbContext): Set<string> {
-  return (ctx.standaloneViaPositionKeys ??= new Set(
-    ctx.circuitJson
-      ?.filter((elm): elm is PCBVia => elm.type === "pcb_via")
-      .map((via) => getPositionKey(via)) ?? [],
-  ))
+function hasMatchingStandaloneVia(
+  {
+    trace,
+    point,
+  }: {
+    trace: PcbTrace
+    point: Extract<PcbTrace["route"][number], { route_type: "via" }>
+  },
+  ctx: PcbContext,
+): boolean {
+  if (!ctx.standaloneViasByPosition) {
+    ctx.standaloneViasByPosition = new Map()
+    for (const via of ctx.circuitJson ?? []) {
+      if (via.type !== "pcb_via") continue
+      const key = getStandaloneViaPositionKey(
+        { elementId: via.pcb_via_id, position: via },
+        ctx,
+      )
+      const vias = ctx.standaloneViasByPosition.get(key) ?? []
+      vias.push(via)
+      ctx.standaloneViasByPosition.set(key, vias)
+    }
+  }
+  return (
+    ctx.standaloneViasByPosition
+      .get(
+        getStandaloneViaPositionKey(
+          { elementId: trace.pcb_trace_id, position: point },
+          ctx,
+        ),
+      )
+      ?.some(
+        (via) =>
+          via.layers.includes(point.from_layer) &&
+          via.layers.includes(point.to_layer),
+      ) ?? false
+  )
+}
+
+function getStandaloneViaPositionKey(
+  {
+    elementId,
+    position,
+  }: { elementId: string; position: Pick<Point, "x" | "y"> },
+  ctx: PcbContext,
+): PcbViaPositionKey {
+  return JSON.stringify([
+    ctx.boardOwnerMap?.get(elementId)?.pcb_board_id,
+    getPositionKey(position),
+  ])
 }
 
 function getPositionKey(point: Pick<Point, "x" | "y">): string {

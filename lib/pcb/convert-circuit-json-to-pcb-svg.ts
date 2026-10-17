@@ -10,6 +10,7 @@ import type {
   PcbCutout,
   PcbPanel,
   PcbBoard,
+  PCBVia,
   LayerRef,
 } from "circuit-json"
 import { distance } from "circuit-json"
@@ -148,6 +149,8 @@ export interface PcbSvgOptions {
   }
 }
 
+export type PcbViaPositionKey = string
+
 export interface PcbContext {
   transform: Matrix
   layer?: LayerRef
@@ -179,7 +182,7 @@ export interface PcbContext {
    */
   usedCopperPourTraceMaskIds?: Set<string>
   copperPourTraceMaskIdsByLayer?: Map<string, string | undefined>
-  standaloneViaPositionKeys?: Set<string>
+  standaloneViasByPosition?: Map<PcbViaPositionKey, PCBVia[]>
 }
 
 export function convertCircuitJsonToPcbSvg(
